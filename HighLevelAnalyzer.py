@@ -125,8 +125,9 @@ class Hla(HighLevelAnalyzer):
             return None
 
         expected_crc = calc_iso14443a_crc(raw_frame[:-CRC_BYTE_SIZE])
-        if expected_crc != raw_frame[-CRC_BYTE_SIZE:]:
-            return "CRC-Error"
+        crc_error = expected_crc != raw_frame[-CRC_BYTE_SIZE:]
+
+        frame_info = None
 
         inf_pos = 1
         cid = None
@@ -160,21 +161,28 @@ class Hla(HighLevelAnalyzer):
             else:
                 chaning = False
                 chaning_str = "0"
-            return f"I({chaning_str}{cid_str}{nad_str}){block_nbr_str}: {inf.hex(' ').upper()}"
+            frame_info = f"I({chaning_str}{cid_str}{nad_str}){block_nbr_str}: {inf.hex(' ').upper()}"
         if raw_frame[0] & PCB_R_BLOCK_MASK == PCB_R_BLOCK:
             if raw_frame[0] & PCB_R_ACK_NAK_MASK == PCB_R_ACK:
-                return f"R(ACK{cid_str}){block_nbr_str}"
+                frame_info = f"R(ACK{cid_str}){block_nbr_str}"
             if raw_frame[0] & PCB_R_ACK_NAK_MASK == PCB_R_NAK:
-                return f"R(NAK{cid_str}){block_nbr_str}"
+                frame_info = f"R(NAK{cid_str}){block_nbr_str}"
         if raw_frame[0] & PCB_S_BLOCK_MASK == PCB_S_BLOCK:
             if raw_frame[0] & PCB_S_DESELECT_MASK == PCB_S_DESELECT:
-                return f"S(DESELECT{cid_str})"
+                frame_info = f"S(DESELECT{cid_str})"
             if raw_frame[0] & PCB_S_WTX_MASK == PCB_S_WTX:
-                return f"S(WTX{cid_str}): {inf.hex(' ')}"
+                frame_info = f"S(WTX{cid_str}): {inf.hex(' ')}"
             if raw_frame[0] & PCB_S_PARAMETERS_MASK == PCB_S_PARAMETERS:
-                return f"S(PARAMETERS{cid_str}): {inf.hex(' ').upper()}"
+                frame_info = f"S(PARAMETERS{cid_str}): {inf.hex(' ').upper()}"
 
-        return None
+        if crc_error is True:
+            if frame_info is None:
+                return "CRC-ERROR"
+            else:
+                # show the infos even if an crc error occured
+                return f"CRC-ERROR ({frame_info})"
+
+        return frame_info
 
     def decode_pcd_to_picc(self, raw_frame: bytes, valid_bits_of_last_byte: int) -> str:
         decoded_frame = self.decode_iso14443a_3_pcd_to_picc(raw_frame, valid_bits_of_last_byte)
