@@ -1,13 +1,13 @@
+# ISO14443A protocol analyzer
 
-  # My Extension
-  
-## Getting started
+This is an high level analyzer for the ISO14443A-3 / -4. It should be used in conjunction with [this ISO14443 low level analyzer](https://github.com/timrid/Iso14443aAnalyzer).
 
-1. Build your extension by updating the Python files for your needs
-2. Create a public Github repo and push your code 
-3. Update this README
-4. Open the Logic app and publish your extension
-5. Create a Github release
-6. Debug your hardware like you've never done before :)
+Currently not allblock types are supported. Especially the ISO14443A-3 anticollision is only partly supported.
 
-  
+Example of an Frame with an I-Block:
+![I-Block example](docs/example-i-block.png)
+
+Example of WTX Frames:
+![WTX example](docs/example-wtx.png)
+
+
