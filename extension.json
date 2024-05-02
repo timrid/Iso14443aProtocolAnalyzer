@@ -1,11 +1,11 @@
 {
-  "name": "Iso14443aHighLevelAnalyzer",
+  "name": "ISO14443A-PROTOCOL",
   "apiVersion": "1.0.0",
   "author": "Tim Riddermann",
   "version": "0.0.1",
   "description": "ISO14443A High Level Analyser",
   "extensions": {
-    "Iso14443aHighLevelAnalyzer": {
+    "ISO14443A-PROTOCOL": {
       "type": "HighLevelAnalyzer",
       "entryPoint": "HighLevelAnalyzer.Hla"
     }

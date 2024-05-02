@@ -1,11 +1,14 @@
 # High Level Analyzer
 # For more information and documentation, please go to https://support.saleae.com/extensions/high-level-analyzer-extensions
 
-from saleae.analyzers import HighLevelAnalyzer, AnalyzerFrame
+from saleae.analyzers import HighLevelAnalyzer, AnalyzerFrame, ChoicesSetting
+import typing as t
 
-
-PCD_TO_PICC_INPUT_TYPE = "pcd_to_picc_raw"
 PCD_TO_PICC_OUTPUT_TYPE = "pcd_to_picc"
+PICC_TO_PCD_OUTPUT_TYPE = "picc_to_pcd"
+
+DIRECTION_SETTING_PCD_TO_PICC = "PCD to PICC"
+DIRECTION_SETTING_PICC_TO_PCD = "PICC to PCD"
 
 REQA = 0x26
 WUPA = 0x52
@@ -62,8 +65,13 @@ def calc_iso14443a_crc(data: bytes) -> bytes:
 
 # High level analyzers must subclass the HighLevelAnalyzer class.
 class Hla(HighLevelAnalyzer):
+    direction_setting = ChoicesSetting(["PCD to PICC", "PICC to PCD"], label="Data Direction")
+
     # An optional list of types this analyzer produces, providing a way to customize the way frames are displayed in Logic 2.
-    result_types = {"pcd_to_picc": {"format": "{{data.value}}"}}
+    result_types = {
+        PCD_TO_PICC_OUTPUT_TYPE: {"format": "{{data.value}}"},
+        PICC_TO_PCD_OUTPUT_TYPE: {"format": "{{data.value}}"},
+    }
 
     def __init__(self):
         """
@@ -86,13 +94,16 @@ class Hla(HighLevelAnalyzer):
         if not isinstance(valid_bits_of_last_byte, int):
             return None
 
-        if frame.type == PCD_TO_PICC_INPUT_TYPE:
+        if self.direction_setting == DIRECTION_SETTING_PCD_TO_PICC:
             value = self.decode_pcd_to_picc(raw_frame, valid_bits_of_last_byte)
             return AnalyzerFrame(PCD_TO_PICC_OUTPUT_TYPE, frame.start_time, frame.end_time, {"value": value})
+        elif self.direction_setting == DIRECTION_SETTING_PICC_TO_PCD:
+            value = self.decode_picc_to_pcd(raw_frame, valid_bits_of_last_byte)
+            return AnalyzerFrame(PICC_TO_PCD_OUTPUT_TYPE, frame.start_time, frame.end_time, {"value": value})
+        else:
+            return None
 
-        return None
-
-    def decode_pcd_to_picc(self, raw_frame: bytes, valid_bits_of_last_byte: int) -> str:
+    def decode_iso14443a_3_pcd_to_picc(self, raw_frame: bytes, valid_bits_of_last_byte: int) -> t.Optional[str]:
         if valid_bits_of_last_byte == 7:
             if len(raw_frame) == 1:
                 if raw_frame[0] == REQA:
@@ -101,16 +112,17 @@ class Hla(HighLevelAnalyzer):
                     return "WUPA"
 
         if valid_bits_of_last_byte != 8:
-            return "???"
+            return None
         if len(raw_frame) < 1:
-            return "???"
+            return None
 
         if raw_frame[0] == RATS:
             return "RATS"
 
+    def decode_iso14443a_4(self, raw_frame: bytes, valid_bits_of_last_byte: int) -> t.Optional[str]:
         # min. 1 byte PCB + 2 byte crc
         if len(raw_frame) < (PCB_BYTE_SIZE + CRC_BYTE_SIZE):
-            return "???"
+            return None
 
         expected_crc = calc_iso14443a_crc(raw_frame[:-CRC_BYTE_SIZE])
         if expected_crc != raw_frame[-CRC_BYTE_SIZE:]:
@@ -161,5 +173,23 @@ class Hla(HighLevelAnalyzer):
                 return f"S(WTX{cid_str}): {inf.hex(' ')}"
             if raw_frame[0] & PCB_S_PARAMETERS_MASK == PCB_S_PARAMETERS:
                 return f"S(PARAMETERS{cid_str}): {inf.hex(' ').upper()}"
+
+        return None
+
+    def decode_pcd_to_picc(self, raw_frame: bytes, valid_bits_of_last_byte: int) -> str:
+        decoded_frame = self.decode_iso14443a_3_pcd_to_picc(raw_frame, valid_bits_of_last_byte)
+        if decoded_frame is not None:
+            return decoded_frame
+
+        decoded_frame = self.decode_iso14443a_4(raw_frame, valid_bits_of_last_byte)
+        if decoded_frame is not None:
+            return decoded_frame
+
+        return "???"
+
+    def decode_picc_to_pcd(self, raw_frame: bytes, valid_bits_of_last_byte: int) -> str:
+        decoded_frame = self.decode_iso14443a_4(raw_frame, valid_bits_of_last_byte)
+        if decoded_frame is not None:
+            return decoded_frame
 
         return "???"
