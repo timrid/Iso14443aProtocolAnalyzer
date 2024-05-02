@@ -2,8 +2,8 @@
   "name": "ISO14443A-PROTOCOL",
   "apiVersion": "1.0.0",
   "author": "Tim Riddermann",
-  "version": "0.0.1",
-  "description": "ISO14443A High Level Analyser",
+  "version": "1.0.0",
+  "description": "ISO14443A Protocol Analyser",
   "extensions": {
     "ISO14443A-PROTOCOL": {
       "type": "HighLevelAnalyzer",
