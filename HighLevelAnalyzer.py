@@ -10,6 +10,9 @@ PICC_TO_PCD_OUTPUT_TYPE = "picc_to_pcd"
 DIRECTION_SETTING_PCD_TO_PICC = "PCD to PICC"
 DIRECTION_SETTING_PICC_TO_PCD = "PICC to PCD"
 
+PROTOCOL_SETTING_NONE = "None"
+PROTOCOL_SETTING_DESFIRE = "DESFire"
+
 REQA = 0x26
 WUPA = 0x52
 RATS = 0xE0
@@ -54,6 +57,81 @@ PCB_S_PARAMETERS_MASK = 0b00110010
 PCB_S_PARAMETERS = 0b00110000
 
 
+ISO_CMDS = {
+    0xA4: "ISOSelectFile",
+    0xB0: "ISOReadBinary",
+    0xD6: "ISOUpdateBinary",
+    0xB2: "ISOReadRecord",
+    0xE2: "ISOAppendRecord",
+    0x84: "ISOGetChallenge",
+    0x82: "ISOExternalAuthenticate",
+    0x88: "ISOInternalAuthenticate",
+}
+
+DESFIRE_CMDS = {
+    0x0A: "Authenticate",
+    0x1A: "AuthenticateISO",
+    0xAA: "AuthenticateAES",
+    0x71: "AuthenticateEV2First",
+    0x77: "AuthenticateEV2NonFirst",
+    0x6E: "FreeMem",
+    0xFC: "Format",
+    0x5C: "SetConfiguration",
+    0x60: "GetVersion",
+    0x51: "GetCardUID",
+    0xC4: "ChangeKey",
+    0xC6: "ChangeKeyEV2",
+    0x56: "InitializeKeySet",
+    0x57: "FinalizeKeySet",
+    0x55: "RollKeySet",
+    0x45: "GetKeySettings",
+    0x54: "ChangeKeySettings",
+    0x64: "GetKeyVersion",
+    0xCA: "CreateApplication",
+    0xDA: "DeleteApplication",
+    0xC9: "CreateDelegatedApplication",
+    0x5A: "SelectApplication",
+    0x6A: "GetApplicationIDs",
+    0x6D: "GetDFNames",
+    0x69: "GetDelegatedInfo",
+    0xCD: "CreateStdDataFile",
+    0xCB: "CreateBackupDataFile",
+    0xCC: "CreateValueFile",
+    0xC1: "CreateLinearRecordFile",
+    0xC0: "CreateCyclicRecordFile",
+    0xCE: "CreateTransactionMACFile",
+    0xDF: "DeleteFile",
+    0x6F: "GetFileIDs",
+    0x61: "GetISOFileIDs",
+    0xF5: "GetFileSettings",
+    0xF6: "GetFileCounters",
+    0x5F: "ChangeFileSettings",
+    0xBD: "ReadData",
+    0xAD: "ReadData",
+    0x3D: "WriteData",
+    0x8D: "WriteData",
+    0x6C: "GetValue",
+    0x0C: "Credit",
+    0xDC: "Debit",
+    0x1C: "LimitedCredit",
+    0xBB: "ReadRecords",
+    0xAB: "ReadRecords",
+    0x3B: "WriteRecord",
+    0x8B: "WriteRecord",
+    0xDB: "UpdateRecord",
+    0xBA: "UpdateRecord",
+    0xEB: "ClearRecordFile",
+    0xC7: "CommitTransaction",
+    0xA7: "AbortTransaction",
+    0xC8: "CommitReaderID",
+    0xF0: "PreparePC",
+    0xF2: "ProximityCheck",
+    0xFD: "VerifyPC",
+    0x3C: "Read_Sig",
+    0xAF: "AdditionalFrame"
+}
+
+
 def calc_iso14443a_crc(data: bytes) -> bytes:
     crc = 0x6363
     for ch in data:
@@ -65,7 +143,8 @@ def calc_iso14443a_crc(data: bytes) -> bytes:
 
 # High level analyzers must subclass the HighLevelAnalyzer class.
 class Hla(HighLevelAnalyzer):
-    direction_setting = ChoicesSetting(["PCD to PICC", "PICC to PCD"], label="Data Direction")
+    direction_setting = ChoicesSetting([DIRECTION_SETTING_PCD_TO_PICC, DIRECTION_SETTING_PICC_TO_PCD], label="Data Direction")
+    protocol = ChoicesSetting([PROTOCOL_SETTING_NONE, PROTOCOL_SETTING_DESFIRE], label="Protocol")
 
     # An optional list of types this analyzer produces, providing a way to customize the way frames are displayed in Logic 2.
     result_types = {
@@ -86,9 +165,12 @@ class Hla(HighLevelAnalyzer):
 
         The type and data values in `frame` will depend on the input analyzer.
         """
+        status = frame.data["status"]
         raw_frame = frame.data["value"]
         valid_bits_of_last_byte = frame.data["valid_bits_of_last_byte"]
 
+        if not status == "OK":
+            return None
         if not isinstance(raw_frame, bytes):
             return None
         if not isinstance(valid_bits_of_last_byte, int):
@@ -119,7 +201,7 @@ class Hla(HighLevelAnalyzer):
         if raw_frame[0] == RATS:
             return "RATS"
 
-    def decode_iso14443a_4(self, raw_frame: bytes, valid_bits_of_last_byte: int) -> t.Optional[str]:
+    def decode_iso14443a_4(self, raw_frame: bytes, valid_bits_of_last_byte: int, direction: str) -> t.Optional[str]:
         # min. 1 byte PCB + 2 byte crc
         if len(raw_frame) < (PCB_BYTE_SIZE + CRC_BYTE_SIZE):
             return None
@@ -161,7 +243,12 @@ class Hla(HighLevelAnalyzer):
             else:
                 chaning = False
                 chaning_str = "0"
-            frame_info = f"I({chaning_str}{cid_str}{nad_str}){block_nbr_str}: {inf.hex(' ').upper()}"
+            data = inf.hex(" ").upper()
+            if self.protocol == PROTOCOL_SETTING_DESFIRE:
+                if direction == PCD_TO_PICC_OUTPUT_TYPE:
+                    cmd_str = self.decode_desfire_picc_to_pcd(inf)
+                    data = f"[{cmd_str}] {data}"
+            frame_info = f"I({chaning_str}{cid_str}{nad_str}){block_nbr_str}: {data}"
         if raw_frame[0] & PCB_R_BLOCK_MASK == PCB_R_BLOCK:
             if raw_frame[0] & PCB_R_ACK_NAK_MASK == PCB_R_ACK:
                 frame_info = f"R(ACK{cid_str}){block_nbr_str}"
@@ -180,23 +267,36 @@ class Hla(HighLevelAnalyzer):
                 return "CRC-ERROR"
             else:
                 # show the infos even if an crc error occured
-                return f"CRC-ERROR ({frame_info})"
+                return f"CRC-ERROR ({frame_info}), {expected_crc.hex(' ')=}"
 
         return frame_info
+
+    def decode_desfire_picc_to_pcd(self, cmd_apdu: bytes) -> str:
+        # see NXP AN12752
+        if len(cmd_apdu) < 1:
+            return "UNKNOWN"
+
+        if cmd_apdu[0] == 0x00:
+            if len(cmd_apdu) < 2:
+                return "UNKNOWN"
+
+            return ISO_CMDS.get(cmd_apdu[1], "UNKNOWN")
+        else:
+            return DESFIRE_CMDS.get(cmd_apdu[0], "UNKNOWN")
 
     def decode_pcd_to_picc(self, raw_frame: bytes, valid_bits_of_last_byte: int) -> str:
         decoded_frame = self.decode_iso14443a_3_pcd_to_picc(raw_frame, valid_bits_of_last_byte)
         if decoded_frame is not None:
             return decoded_frame
 
-        decoded_frame = self.decode_iso14443a_4(raw_frame, valid_bits_of_last_byte)
+        decoded_frame = self.decode_iso14443a_4(raw_frame, valid_bits_of_last_byte, PCD_TO_PICC_OUTPUT_TYPE)
         if decoded_frame is not None:
             return decoded_frame
 
         return "???"
 
     def decode_picc_to_pcd(self, raw_frame: bytes, valid_bits_of_last_byte: int) -> str:
-        decoded_frame = self.decode_iso14443a_4(raw_frame, valid_bits_of_last_byte)
+        decoded_frame = self.decode_iso14443a_4(raw_frame, valid_bits_of_last_byte, PICC_TO_PCD_OUTPUT_TYPE)
         if decoded_frame is not None:
             return decoded_frame
 
