@@ -16,6 +16,10 @@ PROTOCOL_SETTING_DESFIRE = "DESFire"
 REQA = 0x26
 WUPA = 0x52
 RATS = 0xE0
+SEL_CASCADE_LEVEL_1 = 0x93
+SEL_CASCADE_LEVEL_2 = 0x95
+SEL_CASCADE_LEVEL_3 = 0x97
+CT = 0x88  # Cascade Tag
 
 PCB_BYTE_SIZE = 1
 CRC_BYTE_SIZE = 2
@@ -128,8 +132,15 @@ DESFIRE_CMDS = {
     0xF2: "ProximityCheck",
     0xFD: "VerifyPC",
     0x3C: "Read_Sig",
-    0xAF: "AdditionalFrame"
+    0xAF: "AdditionalFrame",
 }
+
+
+def calc_bcc(data: bytes) -> int:
+    bcc = 0x00
+    for b in data:
+        bcc = bcc ^ b
+    return bcc
 
 
 def calc_iso14443a_crc(data: bytes) -> bytes:
@@ -198,8 +209,23 @@ class Hla(HighLevelAnalyzer):
         if len(raw_frame) < 1:
             return None
 
+        if raw_frame[0] == SEL_CASCADE_LEVEL_1:
+            return "SEL (Cascade Level 1)"
+        if raw_frame[0] == SEL_CASCADE_LEVEL_2:
+            return "SEL (Cascade Level 2)"
+        if raw_frame[0] == SEL_CASCADE_LEVEL_3:
+            return "SEL (Cascade Level 3)"
         if raw_frame[0] == RATS:
             return "RATS"
+
+    def decode_iso14443a_3_picc_to_pcd(self, raw_frame: bytes, valid_bits_of_last_byte: int) -> t.Optional[str]:
+        # An ANTICOLLISION command cannot be detected with an specific byte. So we guess that
+        # when the length and the BCC are correct it must be an ANTICOLLISION command
+        if len(raw_frame) == 5:
+            bcc = calc_bcc(raw_frame[0:4])
+            if raw_frame[4] == bcc:
+                return "UID"
+        return None
 
     def decode_iso14443a_4(self, raw_frame: bytes, valid_bits_of_last_byte: int, direction: str) -> t.Optional[str]:
         # min. 1 byte PCB + 2 byte crc
@@ -296,6 +322,10 @@ class Hla(HighLevelAnalyzer):
         return "???"
 
     def decode_picc_to_pcd(self, raw_frame: bytes, valid_bits_of_last_byte: int) -> str:
+        decoded_frame = self.decode_iso14443a_3_picc_to_pcd(raw_frame, valid_bits_of_last_byte)
+        if decoded_frame is not None:
+            return decoded_frame
+
         decoded_frame = self.decode_iso14443a_4(raw_frame, valid_bits_of_last_byte, PICC_TO_PCD_OUTPUT_TYPE)
         if decoded_frame is not None:
             return decoded_frame
